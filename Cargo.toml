@@ -4,3 +4,7 @@ members = [
     "launcher",
 ]
 resolver = "2"
+
+[patch.crates-io]
+redox_syscall = { path = "../../../core/syscall" }
+libredox = { path = "../../../core/libredox" }
