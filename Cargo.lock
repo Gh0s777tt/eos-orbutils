@@ -743,11 +743,11 @@ dependencies = [
  "libc",
  "libredox",
  "log 0.4.27",
- "orbclient",
+ "orbclient 0.4.3",
  "orbfont",
  "orbimage",
  "redox-log",
- "redox_event",
+ "redox_event 0.4.3",
  "resvg",
  "shlex",
  "xdg",
@@ -780,6 +780,7 @@ checksum = "8355be11b20d696c8f18f6cc018c4e372165b1fa8126cef092399c9951984ffa"
 [[package]]
 name = "libredox"
 version = "0.1.18"
+source = "git+https://gitlab.redox-os.org/Ibuki.O/libredox.git?branch=fcntl#08a65ee90b513923388469bbb83322b3ee1c345f"
 dependencies = [
  "bitflags 2.9.0",
  "ioslice",
@@ -958,13 +959,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "orbclient"
+version = "0.4.3"
+source = "git+https://gitlab.redox-os.org/Ibuki.O/orbclient.git?branch=update-libredox#41f20e81bcdecbbee19a8f8eefa380fe26923a2a"
+dependencies = [
+ "libc",
+ "libredox",
+ "sdl2",
+]
+
+[[package]]
 name = "orbfont"
 version = "0.1.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "91e40fb8923531f0407947cfdaef3ab45759150af92cdb97151ccee4e32cb8b4"
 dependencies = [
  "font-loader",
- "orbclient",
+ "orbclient 0.3.50",
  "rusttype",
 ]
 
@@ -975,7 +986,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39fe3f9612b797a312bf122a67ebce408936b34996b9be419dbf0b3d4638c424"
 dependencies = [
  "image 0.21.3",
- "orbclient",
+ "orbclient 0.3.50",
  "resize",
 ]
 
@@ -987,7 +998,7 @@ checksum = "b7e41bf44e06ecdeff0361472e74084be4c0c76da0b645c8970f4075c093a1ca"
 dependencies = [
  "cssparser",
  "lazy_static",
- "orbclient",
+ "orbclient 0.3.50",
  "orbfont",
  "orbimage",
 ]
@@ -1004,12 +1015,12 @@ dependencies = [
  "log 0.4.27",
  "mime",
  "mime_guess",
- "orbclient",
+ "orbclient 0.3.50",
  "orbfont",
  "orbimage",
  "orbtk",
  "redox-log",
- "redox_event",
+ "redox_event 0.4.8",
  "redox_syscall",
  "redox_users",
  "serde",
@@ -1339,8 +1350,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "redox_event"
+version = "0.4.8"
+source = "git+https://gitlab.redox-os.org/Ibuki.O/event.git?branch=update-redox-crates#f2d5d34a518ae982fa5acd7ebc6108cd1fcd6a6c"
+dependencies = [
+ "bitflags 2.9.0",
+ "libredox",
+]
+
+[[package]]
 name = "redox_syscall"
-version = "0.8.2"
+version = "0.9.0"
+source = "git+https://gitlab.redox-os.org/Ibuki.O/syscall.git?branch=remove-fd-allocation#4b76625ed9fdb305969b59e18a20a0d5855251cc"
 dependencies = [
  "bitflags 2.9.0",
 ]

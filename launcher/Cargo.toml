@@ -8,9 +8,9 @@ freedesktop_entry_parser = "1"
 freedesktop-icons = "0.2"
 lazy_static = "1"
 libc = "0.2"
-libredox = { path = "../../../../core/libredox", default-features = false, features = ["std", "call"] }
+libredox = { git = "https://gitlab.redox-os.org/Ibuki.O/libredox.git", branch = "fcntl", default-features = false, features = ["std", "call"] }
 log = "0.4.14"
-orbclient = "0.3.50"
+orbclient = { git = "https://gitlab.redox-os.org/Ibuki.O/orbclient.git", branch = "update-libredox" }
 orbfont = "0.1"
 orbimage = "0.1"
 redox-log = "0.1"

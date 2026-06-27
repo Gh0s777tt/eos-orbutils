@@ -6,5 +6,5 @@ members = [
 resolver = "2"
 
 [patch.crates-io]
-redox_syscall = { path = "../../../core/syscall" }
-libredox = { path = "../../../core/libredox" }
+redox_syscall = { git = "https://gitlab.redox-os.org/Ibuki.O/syscall.git", branch = "remove-fd-allocation" }
+libredox = { git = "https://gitlab.redox-os.org/Ibuki.O/libredox.git", branch = "fcntl" }
