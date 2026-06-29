@@ -10,7 +10,7 @@ lazy_static = "1"
 libc = "0.2"
 libredox = { git = "https://gitlab.redox-os.org/Ibuki.O/libredox.git", branch = "fcntl", default-features = false, features = ["std", "call"] }
 log = "0.4.14"
-orbclient = { git = "https://gitlab.redox-os.org/Ibuki.O/orbclient.git", branch = "update-libredox" }
+orbclient = "0.3.50"
 orbfont = "0.1"
 orbimage = "0.1"
 redox-log = "0.1"

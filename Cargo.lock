@@ -743,7 +743,7 @@ dependencies = [
  "libc",
  "libredox",
  "log 0.4.27",
- "orbclient 0.4.3",
+ "orbclient",
  "orbfont",
  "orbimage",
  "redox-log",
@@ -959,23 +959,13 @@ dependencies = [
 ]
 
 [[package]]
-name = "orbclient"
-version = "0.4.3"
-source = "git+https://gitlab.redox-os.org/Ibuki.O/orbclient.git?branch=update-libredox#41f20e81bcdecbbee19a8f8eefa380fe26923a2a"
-dependencies = [
- "libc",
- "libredox",
- "sdl2",
-]
-
-[[package]]
 name = "orbfont"
 version = "0.1.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "91e40fb8923531f0407947cfdaef3ab45759150af92cdb97151ccee4e32cb8b4"
 dependencies = [
  "font-loader",
- "orbclient 0.3.50",
+ "orbclient",
  "rusttype",
 ]
 
@@ -986,7 +976,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39fe3f9612b797a312bf122a67ebce408936b34996b9be419dbf0b3d4638c424"
 dependencies = [
  "image 0.21.3",
- "orbclient 0.3.50",
+ "orbclient",
  "resize",
 ]
 
@@ -998,7 +988,7 @@ checksum = "b7e41bf44e06ecdeff0361472e74084be4c0c76da0b645c8970f4075c093a1ca"
 dependencies = [
  "cssparser",
  "lazy_static",
- "orbclient 0.3.50",
+ "orbclient",
  "orbfont",
  "orbimage",
 ]
@@ -1015,7 +1005,7 @@ dependencies = [
  "log 0.4.27",
  "mime",
  "mime_guess",
- "orbclient 0.3.50",
+ "orbclient",
  "orbfont",
  "orbimage",
  "orbtk",
