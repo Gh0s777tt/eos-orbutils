@@ -747,7 +747,7 @@ dependencies = [
  "orbfont",
  "orbimage",
  "redox-log",
- "redox_event 0.4.3",
+ "redox_event",
  "resvg",
  "shlex",
  "xdg",
@@ -780,7 +780,8 @@ checksum = "8355be11b20d696c8f18f6cc018c4e372165b1fa8126cef092399c9951984ffa"
 [[package]]
 name = "libredox"
 version = "0.1.18"
-source = "git+https://gitlab.redox-os.org/Ibuki.O/libredox.git?branch=fcntl#08a65ee90b513923388469bbb83322b3ee1c345f"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c943259e342f1e06ff2da7a83eabdfe7f92ce10262688dbf1895ff0b3e6e4652"
 dependencies = [
  "bitflags 2.9.0",
  "ioslice",
@@ -1010,7 +1011,7 @@ dependencies = [
  "orbimage",
  "orbtk",
  "redox-log",
- "redox_event 0.4.8",
+ "redox_event",
  "redox_syscall",
  "redox_users",
  "serde",
@@ -1331,18 +1332,9 @@ dependencies = [
 
 [[package]]
 name = "redox_event"
-version = "0.4.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c30b73c93693667b5a8e6f54bddcc5a57449ef17c99f4b55c12d5bae4ab79e82"
-dependencies = [
- "bitflags 2.9.0",
- "libredox",
-]
-
-[[package]]
-name = "redox_event"
 version = "0.4.8"
-source = "git+https://gitlab.redox-os.org/Ibuki.O/event.git?branch=update-redox-crates#f2d5d34a518ae982fa5acd7ebc6108cd1fcd6a6c"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c5018d583d6d2f5499352aea8d177e9067d1eb03ab17c78169d5ba7a30001b15"
 dependencies = [
  "bitflags 2.9.0",
  "libredox",
@@ -1351,7 +1343,8 @@ dependencies = [
 [[package]]
 name = "redox_syscall"
 version = "0.9.0"
-source = "git+https://gitlab.redox-os.org/Ibuki.O/syscall.git?branch=remove-fd-allocation#4b76625ed9fdb305969b59e18a20a0d5855251cc"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c5102a6aaa05aa011a238e178e6bca86d2cb56fc9f586d37cb80f5bca6e07759"
 dependencies = [
  "bitflags 2.9.0",
 ]
