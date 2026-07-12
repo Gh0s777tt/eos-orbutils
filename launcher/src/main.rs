@@ -402,52 +402,31 @@ impl Bar {
             BAR_COLOR,
         );
 
-        let mut x = 0;
         let mut y = 0;
-        let mut i = 0;
 
-        if let Some(start) = self.start.as_ref() {
+        // App icons flow from the left (indices 1..=n; index 0 is the centered Start).
+        let mut x = 8;
+        for (idx, package) in self.packages.iter_mut().enumerate() {
+            let i = (idx + 1) as i32;
+            let image = package.icon.image();
             if i == self.selected {
                 self.window.rect(
-                    x as i32,
-                    y as i32,
-                    start.width() as u32,
-                    start.height() as u32,
-                    BAR_HIGHLIGHT_COLOR,
-                );
-            }
-
-            self.window
-                .image(x, y, start.width(), start.height(), start.data());
-
-            x += start.width() as i32;
-            i += 1;
-        }
-
-        for package in self.packages.iter_mut() {
-            if i == self.selected {
-                let image = package.icon.image();
-                self.window.rect(
-                    x as i32,
-                    y as i32,
+                    x,
+                    y,
                     image.width() as u32,
                     image.height() as u32,
                     BAR_HIGHLIGHT_COLOR,
                 );
 
                 self.selected_window.set(Color::rgba(0, 0, 0, 0));
-
                 let text = self.font.render(&package.name, font_size() as f32);
                 self.selected_window
-                    .rect(x, 0, text.width() + 8, text.height() + 8, BAR_COLOR);
-                text.draw(&mut self.selected_window, x + 4, 4, TEXT_HIGHLIGHT_COLOR);
-
+                    .rect(0, 0, text.width() + 8, text.height() + 8, BAR_COLOR);
+                text.draw(&mut self.selected_window, 4, 4, TEXT_HIGHLIGHT_COLOR);
                 self.selected_window.sync();
                 let sw_y = self.window.y() - self.selected_window.height() as i32 - 4;
-                self.selected_window.set_pos(0, sw_y);
+                self.selected_window.set_pos(self.window.x() + x, sw_y);
             }
-
-            let image = package.icon.image();
 
             self.window
                 .image(x, y, image.width(), image.height(), image.data());
@@ -459,17 +438,27 @@ impl Bar {
                 }
             }
             if count > 0 {
-                self.window.rect(
-                    x as i32 + 4,
-                    y as i32,
-                    image.width() - 8,
-                    2,
-                    TEXT_HIGHLIGHT_COLOR,
-                );
+                self.window
+                    .rect(x + 4, y, image.width() - 8, 2, TEXT_HIGHLIGHT_COLOR);
             }
 
             x += image.width() as i32;
-            i += 1;
+        }
+
+        // Start button — centered (index 0): the E-OS diamond mark.
+        if let Some(start) = self.start.as_ref() {
+            let sx = (self.width as i32 - start.width() as i32) / 2;
+            if 0 == self.selected {
+                self.window.rect(
+                    sx,
+                    y,
+                    start.width() as u32,
+                    start.height() as u32,
+                    BAR_HIGHLIGHT_COLOR,
+                );
+            }
+            self.window
+                .image(sx, y, start.width(), start.height(), start.data());
         }
 
         let text = self.font.render(&self.time, (font_size() * 2) as f32);
@@ -748,23 +737,12 @@ fn bar_main(width: u32, height: u32) -> io::Result<()> {
                     if redraw {
                         let mut now_selected = -1;
 
-                        if let Some(start) = bar.start.as_ref() {
-                            let mut x = 0;
+                        {
                             let y = 0;
-                            let mut i = 0;
-
-                            {
-                                if mouse_y >= y
-                                    && mouse_x >= x
-                                    && mouse_x < x + start.width() as i32
-                                {
-                                    now_selected = i;
-                                }
-                                x += start.width() as i32;
-                                i += 1;
-                            }
-
-                            for package in bar.packages.iter_mut() {
+                            // App icons from the left (indices 1..=n).
+                            let mut x = 8;
+                            for (idx, package) in bar.packages.iter_mut().enumerate() {
+                                let i = (idx + 1) as i32;
                                 let image = package.icon.image();
                                 if mouse_y >= y
                                     && mouse_x >= x
@@ -773,7 +751,16 @@ fn bar_main(width: u32, height: u32) -> io::Result<()> {
                                     now_selected = i;
                                 }
                                 x += image.width() as i32;
-                                i += 1;
+                            }
+                            // Centered Start (index 0).
+                            if let Some(start) = bar.start.as_ref() {
+                                let sx = (bar.width as i32 - start.width() as i32) / 2;
+                                if mouse_y >= y
+                                    && mouse_x >= sx
+                                    && mouse_x < sx + start.width() as i32
+                                {
+                                    now_selected = 0;
+                                }
                             }
                         }
 
