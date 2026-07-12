@@ -13,11 +13,10 @@ use log::{debug, error, info};
 use redox_log::{OutputBuilder, RedoxLogger};
 use std::collections::BTreeMap;
 use std::fs::File;
-use std::io::{ErrorKind, Read, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::os::unix::io::AsRawFd;
-use std::path::Path;
-use std::process::{Child, Command};
-use std::sync::atomic::{AtomicIsize, Ordering};
+use std::process::{Child, Command, Stdio};
+use std::sync::atomic::Ordering;
 use std::{env, io, mem};
 
 use orbclient::image::Image;
@@ -29,201 +28,9 @@ use theme::{BAR_COLOR, BAR_HIGHLIGHT_COLOR, TEXT_COLOR, TEXT_HIGHLIGHT_COLOR};
 
 mod package;
 mod theme;
+mod ui;
 
-static SCALE: AtomicIsize = AtomicIsize::new(1);
-
-fn chooser_width() -> u32 {
-    200 * SCALE.load(Ordering::Relaxed) as u32
-}
-
-fn font_size() -> i32 {
-    16 * SCALE.load(Ordering::Relaxed) as i32
-}
-
-fn icon_size() -> i32 {
-    48 * SCALE.load(Ordering::Relaxed) as i32
-}
-
-fn icon_small_size() -> i32 {
-    32 * SCALE.load(Ordering::Relaxed) as i32
-}
-
-#[cfg(target_os = "redox")]
-static UI_PATH: &'static str = "/usr/share/ui";
-
-#[cfg(not(target_os = "redox"))]
-static UI_PATH: &'static str = "ui";
-
-fn exec_to_command(exec: &str, path_opt: Option<&str>) -> Option<Command> {
-    let args_vec: Vec<String> = shlex::split(exec)?;
-    let mut args = args_vec.iter();
-    let mut command = Command::new(args.next()?);
-    for arg in args {
-        if arg.starts_with('%') {
-            match arg.as_str() {
-                "%f" | "%F" | "%u" | "%U" => {
-                    if let Some(path) = &path_opt {
-                        command.arg(path);
-                    }
-                }
-                _ => {
-                    log::warn!("unsupported Exec code {:?} in {:?}", arg, exec);
-                    return None;
-                }
-            }
-        } else {
-            command.arg(arg);
-        }
-    }
-    Some(command)
-}
-
-fn spawn_exec(exec: &str, path_opt: Option<&str>) {
-    match exec_to_command(exec, path_opt) {
-        Some(mut command) => match command.spawn() {
-            Ok(_) => {}
-            Err(err) => {
-                error!("failed to launch {}: {}", exec, err);
-            }
-        },
-        None => {
-            error!("failed to parse {}", exec);
-        }
-    }
-}
-
-#[cfg(not(target_os = "redox"))]
-fn wait(status: &mut i32) -> io::Result<usize> {
-    extern crate libc;
-
-    use std::io::Error;
-
-    let pid = unsafe { libc::waitpid(0, status as *mut i32, libc::WNOHANG) };
-    if pid < 0 {
-        let err = Error::last_os_error();
-        if err.raw_os_error() == Some(libc::ECHILD) {
-            return Ok(0);
-        }
-        return Err(io::Error::new(
-            ErrorKind::Other,
-            format!("waitpid failed: {}", err),
-        ));
-    }
-    Ok(pid as usize)
-}
-
-#[cfg(target_os = "redox")]
-fn wait(status: &mut i32) -> io::Result<usize> {
-    match libredox::call::waitpid(0, status, libc::WNOHANG) {
-        Ok(t) => Ok(t),
-        Err(err) => {
-            if err.errno() == libredox::errno::ECHILD {
-                return Ok(0);
-            }
-            Err(io::Error::new(
-                ErrorKind::Other,
-                format!("Error in waitpid(): {}", err.to_string()),
-            ))
-        }
-    }
-}
-
-fn size_icon(icon: Image, small: bool) -> Image {
-    let size = if small {
-        icon_small_size()
-    } else {
-        icon_size()
-    } as u32;
-    if icon.width() == size && icon.height() == size {
-        icon
-    } else {
-        icon.resize(size, size, orbclient::image::ResizeType::Lanczos3)
-    }
-}
-
-fn load_icon<P: AsRef<Path>>(path: P) -> Option<Image> {
-    let icon = Image::from_path(path).ok()?;
-    Some(size_icon(icon, false))
-}
-
-fn load_icon_small<P: AsRef<Path>>(path: P) -> Option<Image> {
-    let icon = Image::from_path(path).ok()?;
-    Some(size_icon(icon, true))
-}
-
-lazy_static::lazy_static! {
-    static ref USVG_OPTIONS: resvg::usvg::Options<'static> = {
-        let mut opt = resvg::usvg::Options::default();
-        opt.fontdb_mut().load_system_fonts();
-        opt
-    };
-}
-
-fn load_icon_svg<P: AsRef<Path>>(path: P, small: bool) -> Option<Image> {
-    let tree = {
-        let svg_data = std::fs::read(path).ok()?;
-        resvg::usvg::Tree::from_data(&svg_data, &USVG_OPTIONS).ok()?
-    };
-
-    let pixmap_size = tree.size().to_int_size();
-    let mut pixmap = resvg::tiny_skia::Pixmap::new(pixmap_size.width(), pixmap_size.height())?;
-    resvg::render(
-        &tree,
-        resvg::tiny_skia::Transform::default(),
-        &mut pixmap.as_mut(),
-    );
-
-    let width = pixmap.width();
-    let height = pixmap.height();
-    let mut data = Vec::with_capacity(width as usize * height as usize);
-    for rgba in pixmap.take().chunks_exact(4) {
-        data.push(Color::rgba(rgba[0], rgba[1], rgba[2], rgba[3]));
-    }
-
-    let icon = Image::from_data(width, height, data.into())?;
-    Some(size_icon(icon, small))
-}
-
-fn get_packages() -> Vec<Package> {
-    let mut packages: Vec<Package> = Vec::new();
-
-    if let Ok(read_dir) = Path::new(&format!("{}/apps/", UI_PATH)).read_dir() {
-        for entry_res in read_dir {
-            let entry = match entry_res {
-                Ok(x) => x,
-                Err(_) => continue,
-            };
-            if entry
-                .file_type()
-                .expect("failed to get file_type")
-                .is_file()
-            {
-                packages.push(Package::from_path(&entry.path().display().to_string()));
-            }
-        }
-    }
-
-    if let Ok(xdg_dirs) = xdg::BaseDirectories::new() {
-        for path in xdg_dirs.find_data_files("applications") {
-            if let Ok(read_dir) = path.read_dir() {
-                for dir_entry_res in read_dir {
-                    let Ok(dir_entry) = dir_entry_res else {
-                        continue;
-                    };
-                    let Ok(id) = dir_entry.file_name().into_string() else {
-                        continue;
-                    };
-                    if let Some(package) = Package::from_desktop_entry(id, &dir_entry.path()) {
-                        packages.push(package);
-                    }
-                }
-            }
-        }
-    }
-
-    packages.sort_by(|a, b| a.name.cmp(&b.name));
-    packages
-}
+pub use ui::*;
 
 fn draw_chooser(window: &mut Window, font: &Font, packages: &mut Vec<Package>, selected: i32) {
     let w = window.width();
@@ -584,6 +391,37 @@ impl Bar {
 
 fn bar_main(width: u32, height: u32) -> io::Result<()> {
     let mut bar = Bar::new(width, height);
+
+    // The desktop icon layer goes first: wait for its DESKTOP-READY line so its
+    // Back window exists before the wallpaper's (orbital keeps creation order
+    // among Back windows — earlier = closer to the viewer). Both stay direct
+    // children of the bar so logout kills them.
+    let mut _desktop_stdout = None;
+    match Command::new("desktop").stdout(Stdio::piped()).spawn() {
+        Ok(mut child) => {
+            if let Some(stdout) = child.stdout.take() {
+                let mut reader = BufReader::new(stdout);
+                let mut line = String::new();
+                loop {
+                    line.clear();
+                    match reader.read_line(&mut line) {
+                        Ok(0) => break,
+                        Ok(_) => {
+                            if line.contains("DESKTOP-READY") {
+                                break;
+                            }
+                        }
+                        Err(_) => break,
+                    }
+                }
+                // keep the pipe open for the session: desktop logs to stdout
+                // and a closed pipe would turn its prints into panics
+                _desktop_stdout = Some(reader.into_inner());
+            }
+            bar.children.push(("desktop".to_string(), child));
+        }
+        Err(err) => error!("failed to launch desktop: {}", err),
+    }
 
     match Command::new("background").spawn() {
         Ok(child) => bar.children.push(("background".to_string(), child)),

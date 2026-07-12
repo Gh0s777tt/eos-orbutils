@@ -3,6 +3,14 @@ name = "launcher"
 version = "0.1.0"
 edition = "2021"
 
+[[bin]]
+name = "launcher"
+path = "src/main.rs"
+
+[[bin]]
+name = "desktop"
+path = "src/desktop.rs"
+
 [dependencies]
 freedesktop_entry_parser = "1"
 freedesktop-icons = "0.2"
