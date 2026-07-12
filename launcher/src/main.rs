@@ -260,6 +260,7 @@ struct Bar {
     children: Vec<(String, Child)>,
     packages: Vec<Package>,
     start: Option<Image>,
+    tray: Vec<Option<Image>>,
     start_packages: Vec<Package>,
     category_packages: BTreeMap<String, Vec<Package>>,
     font: Font,
@@ -342,6 +343,11 @@ impl Bar {
             children: Vec::new(),
             packages: root_packages,
             start: load_icon(&format!("{}/icons/places/start-here.png", UI_PATH)),
+            tray: vec![
+                load_icon_small(&format!("{}/ui/tray-net.png", UI_PATH)),
+                load_icon_small(&format!("{}/ui/tray-vol.png", UI_PATH)),
+                load_icon_small(&format!("{}/ui/tray-set.png", UI_PATH)),
+            ],
             start_packages,
             category_packages,
             font: Font::find(Some("Sans"), None, None).unwrap(),
@@ -461,10 +467,21 @@ impl Bar {
                 .image(sx, y, start.width(), start.height(), start.data());
         }
 
+        // Clock (far right).
         let text = self.font.render(&self.time, (font_size() * 2) as f32);
-        x = self.width as i32 - text.width() as i32 - 8;
+        x = self.width as i32 - text.width() as i32 - 12;
         y = (icon_size() - text.height() as i32) / 2;
         text.draw(&mut self.window, x, y, TEXT_HIGHLIGHT_COLOR);
+
+        // System tray, right-to-left, to the left of the clock.
+        let mut tx = x - 14;
+        let ty = (icon_size() - icon_small_size()) / 2;
+        for icon in self.tray.iter().rev().flatten() {
+            tx -= icon.width() as i32;
+            self.window
+                .image(tx, ty, icon.width(), icon.height(), icon.data());
+            tx -= 8;
+        }
 
         self.window.sync();
     }
