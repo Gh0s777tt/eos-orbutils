@@ -60,16 +60,40 @@ fn cell_height() -> i32 {
 fn desktop_entries() -> Vec<Entry> {
     let mut entries = Vec::new();
 
+    // The same app often shows up twice: once as a UI_PATH manifest and once
+    // as an XDG desktop entry. Key by the exec binary name and prefer the XDG
+    // variant (localized name, themed icon).
+    let mut seen = std::collections::BTreeMap::<String, (usize, bool)>::new();
     for package in get_packages() {
         if package.exec.is_empty() {
             continue;
         }
-        entries.push(Entry {
+        let key = package
+            .exec
+            .split_whitespace()
+            .next()
+            .map(|tok| tok.rsplit('/').next().unwrap_or(tok).to_string())
+            .unwrap_or_else(|| package.name.clone());
+        let xdg = package.id.ends_with(".desktop");
+        let entry = Entry {
             name: package.name.clone(),
             icon: package.icon.clone(),
             action: Action::Exec(package.exec.clone()),
-        });
+        };
+        match seen.get(&key).copied() {
+            Some((index, was_xdg)) => {
+                if xdg && !was_xdg {
+                    entries[index] = entry;
+                    seen.insert(key, (index, true));
+                }
+            }
+            None => {
+                seen.insert(key, (entries.len(), xdg));
+                entries.push(entry);
+            }
+        }
     }
+    entries.sort_by(|a, b| a.name.cmp(&b.name));
 
     if let Ok(home) = env::var("HOME") {
         if let Ok(read_dir) = Path::new(&home).join("Desktop").read_dir() {
