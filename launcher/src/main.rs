@@ -344,9 +344,9 @@ impl Bar {
             packages: root_packages,
             start: load_icon(&format!("{}/icons/places/start-here.png", UI_PATH)),
             tray: vec![
-                load_icon_small(&format!("{}/ui/tray-net.png", UI_PATH)),
-                load_icon_small(&format!("{}/ui/tray-vol.png", UI_PATH)),
-                load_icon_small(&format!("{}/ui/tray-set.png", UI_PATH)),
+                load_icon_small(&format!("{}/icons/status/tray-net.png", UI_PATH)),
+                load_icon_small(&format!("{}/icons/status/tray-vol.png", UI_PATH)),
+                load_icon_small(&format!("{}/icons/status/tray-set.png", UI_PATH)),
             ],
             start_packages,
             category_packages,
