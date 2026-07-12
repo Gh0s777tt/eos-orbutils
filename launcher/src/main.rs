@@ -274,7 +274,7 @@ struct Bar {
 impl Bar {
     fn new(width: u32, height: u32) -> Bar {
         // E-OS: float the bar with side/bottom margins + rounded corners.
-        let margin = (icon_size() / 4).max(6);
+        let margin = (icon_size() / 2).max(10);
         let bar_width = width.saturating_sub((margin * 2) as u32);
         let all_packages = get_packages();
 
@@ -397,7 +397,7 @@ impl Bar {
             0,
             self.width,
             icon_size() as u32,
-            (icon_size() / 3) as u32,
+            (icon_size() / 2) as u32,
             true,
             BAR_COLOR,
         );
