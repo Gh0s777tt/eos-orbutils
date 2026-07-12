@@ -145,9 +145,9 @@ fn login_window(
     let btn_inner_w = (btn_size_i - 4 * s_i) as u32;
     let btn_inner_h = (btn_size_i - 4 * s_i) as u32;
     let btn_text_offset_y = 6 * s_i;
-    let btn_color_inactive = Color::rgb(39, 72, 105);
-    let btn_color_active = Color::rgb(59, 102, 135);
-    let btn_border_color = Color::rgb(29, 29, 29);
+    let btn_color_inactive = Color::rgb(120, 12, 12);
+    let btn_color_active = Color::rgb(180, 24, 24);
+    let btn_border_color = Color::rgb(45, 8, 8);
     let item_height_u = 28 * s_u;
     let item_height_i = 28 * s_i;
     let menu_width_u = 150 * s_u;
@@ -248,7 +248,7 @@ fn login_window(
             let inactive = if failure {
                 Color::rgb(128, 0, 0)
             } else {
-                Color::rgb(29, 29, 29)
+                Color::rgb(45, 8, 8)
             };
 
             let x = (window.width() as i32 - 200 * s_i) / 2;
@@ -321,13 +321,13 @@ fn login_window(
 
             // --- Login Button ---
             {
-                window.rect(x, y, 200 * s_u, 28 * s_u, Color::rgb(29, 29, 29));
+                window.rect(x, y, 200 * s_u, 28 * s_u, Color::rgb(45, 8, 8));
                 window.rect(
                     x + 2 * s_i,
                     y + 2 * s_i,
                     196 * s_u,
                     24 * s_u,
-                    Color::rgb(39, 72, 105),
+                    Color::rgb(120, 12, 12),
                 );
                 let text = font.render(&"Login", 16.0 * s_f);
                 text.draw(
