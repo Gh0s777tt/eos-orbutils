@@ -273,6 +273,9 @@ struct Bar {
 
 impl Bar {
     fn new(width: u32, height: u32) -> Bar {
+        // E-OS: float the bar with side/bottom margins + rounded corners.
+        let margin = (icon_size() / 4).max(6);
+        let bar_width = width.saturating_sub((margin * 2) as u32);
         let all_packages = get_packages();
 
         // Handle packages with categories
@@ -342,12 +345,12 @@ impl Bar {
             start_packages,
             category_packages,
             font: Font::find(Some("Sans"), None, None).unwrap(),
-            width,
+            width: bar_width,
             height,
             window: Window::new_flags(
-                0,
-                height as i32 - icon_size(),
-                width,
+                margin,
+                height as i32 - icon_size() - margin,
+                bar_width,
                 icon_size() as u32,
                 "",
                 &[
@@ -387,7 +390,17 @@ impl Bar {
     }
 
     fn draw(&mut self) {
-        self.window.set(BAR_COLOR);
+        // Floating rounded glass background (transparent outside the pill).
+        self.window.set(Color::rgba(0, 0, 0, 0));
+        self.window.rounded_rect(
+            0,
+            0,
+            self.width,
+            icon_size() as u32,
+            (icon_size() / 3) as u32,
+            true,
+            BAR_COLOR,
+        );
 
         let mut x = 0;
         let mut y = 0;
