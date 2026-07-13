@@ -1,0 +1,6 @@
+name=E-OS Settings
+binary=/usr/bin/eos-settings
+icon=/ui/icons/apps/eos-settings.png
+category=Settings
+description=Ustawienia E-OS (Crimson)
+author=E-OS
