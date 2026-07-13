@@ -122,6 +122,134 @@ fn login_command(
     }
 }
 
+// E-OS R-602: the greeter is the default boot path (since R-F08), so it must
+// enforce the same first-boot rule as the text `login`: an account still on a
+// shipped default credential — a blank password, or the default `root` password
+// "password" — cannot reach the desktop until a new password is set.
+#[derive(PartialEq, Clone, Copy)]
+enum LoginMode {
+    Login,
+    SetNew,
+    ConfirmNew,
+}
+
+enum Auth {
+    Denied,
+    Ok,
+    MustChange,
+}
+
+fn authenticate(username: &str, pass: &str) -> Auth {
+    let sys_users = match AllUsers::authenticator(Config::default()) {
+        Ok(users) => users,
+        Err(_) => return Auth::Denied,
+    };
+    match sys_users.get_by_name(username) {
+        Some(user) => {
+            if !user.verify_passwd(pass) {
+                Auth::Denied
+            } else if user.is_passwd_blank() || pass == "password" {
+                Auth::MustChange
+            } else {
+                Auth::Ok
+            }
+        }
+        None => Auth::Denied,
+    }
+}
+
+// orblogin runs as root (init → orbital → orblogin), so it can set the password
+// and persist it — the same authenticator/set_passwd/save path the `passwd` tool
+// uses. Refuses to leave the account on the shipped default "password".
+fn set_password(username: &str, new_pass: &str) -> Result<(), String> {
+    if new_pass.is_empty() || new_pass == "password" {
+        return Err("weak password".to_string());
+    }
+    // `writeable(true)` is required for `save()` — plain `Config::default()`
+    // opens the users DB read-only (EBADF on save). Same as `passwd`.
+    let mut sys_users = AllUsers::authenticator(Config::default().writeable(true))
+        .map_err(|e| format!("authenticator: {e}"))?;
+    let user = sys_users
+        .get_mut_by_name(username)
+        .ok_or_else(|| "account not found".to_string())?;
+    user.set_passwd(new_pass)
+        .map_err(|e| format!("set_passwd: {e}"))?;
+    sys_users.save().map_err(|e| format!("save: {e}"))?;
+    Ok(())
+}
+
+// Shared submit action for both the Enter key and the Login button. Returns
+// Some(command) only when a session should actually start; otherwise it advances
+// the first-boot password flow in place.
+#[allow(clippy::too_many_arguments)]
+fn submit(
+    username: &mut String,
+    password: &mut String,
+    mode: &mut LoginMode,
+    new_pw: &mut String,
+    change_user: &mut String,
+    item: &mut usize,
+    failure: &mut bool,
+    launcher_cmd: &str,
+    launcher_args: &[String],
+) -> Option<(Command, String)> {
+    match *mode {
+        LoginMode::Login => {
+            match authenticate(username, password) {
+                Auth::Ok => {
+                    if let Some(cmd) =
+                        login_command(username, password, launcher_cmd, launcher_args)
+                    {
+                        return Some(cmd);
+                    }
+                    *item = 0;
+                    password.clear();
+                    *failure = true;
+                }
+                Auth::MustChange => {
+                    *change_user = username.clone();
+                    *mode = LoginMode::SetNew;
+                    password.clear();
+                    *item = 1;
+                    *failure = false;
+                }
+                Auth::Denied => {
+                    *item = 0;
+                    password.clear();
+                    *failure = true;
+                }
+            }
+            None
+        }
+        LoginMode::SetNew => {
+            if password.is_empty() || *password == "password" {
+                *failure = true;
+            } else {
+                *new_pw = password.clone();
+                password.clear();
+                *mode = LoginMode::ConfirmNew;
+                *failure = false;
+            }
+            None
+        }
+        LoginMode::ConfirmNew => {
+            if *password == *new_pw && set_password(change_user, new_pw).is_ok() {
+                if let Some(cmd) =
+                    login_command(change_user, new_pw, launcher_cmd, launcher_args)
+                {
+                    return Some(cmd);
+                }
+            }
+            // Mismatch or save failure: restart the password step.
+            *mode = LoginMode::SetNew;
+            new_pw.clear();
+            password.clear();
+            *failure = true;
+            None
+        }
+    }
+}
+
 fn login_window(
     launcher_cmd: &str,
     launcher_args: &[String],
@@ -173,6 +301,11 @@ fn login_window(
     let mut password = String::new();
     let mut failure = false;
 
+    // E-OS R-602: first-boot password flow state (default accounts must set a pw).
+    let mut mode = LoginMode::Login;
+    let mut new_pw = String::new();
+    let mut change_user = String::new();
+
     let mut keymap_dropdown_open = false;
     let mut power_dropdown_open = false;
     let mut keymap_state = crate::keymap::KeymapState::new();
@@ -221,13 +354,28 @@ fn login_window(
             let y = (window.height() as i32 - 164 * s_i) / 2;
             window.rect(x, y, 216 * s_u, 164 * s_u, Color::rgba(0, 0, 0, 128));
 
-            font.render("Username:", 16.0 * s_f).draw(
+            font.render(
+                match mode {
+                    LoginMode::Login => "Username:",
+                    _ => "First-boot setup:",
+                },
+                16.0 * s_f,
+            )
+            .draw(
                 &mut window,
                 x + 8 * s_i,
                 y + 8 * s_i,
                 Color::rgb(255, 255, 255),
             );
-            font.render("Password:", 16.0 * s_f).draw(
+            font.render(
+                match mode {
+                    LoginMode::Login => "Password:",
+                    LoginMode::SetNew => "New password:",
+                    LoginMode::ConfirmNew => "Confirm password:",
+                },
+                16.0 * s_f,
+            )
+            .draw(
                 &mut window,
                 x + 8 * s_i,
                 y + 68 * s_i,
@@ -329,7 +477,12 @@ fn login_window(
                     24 * s_u,
                     Color::rgb(120, 12, 12),
                 );
-                let text = font.render(&"Login", 16.0 * s_f);
+                let btn_label = match mode {
+                    LoginMode::Login => "Login",
+                    LoginMode::SetNew => "Set password",
+                    LoginMode::ConfirmNew => "Confirm",
+                };
+                let text = font.render(&btn_label, 16.0 * s_f);
                 text.draw(
                     &mut window,
                     x + (200 * s_i - text.width() as i32) / 2,
@@ -530,23 +683,25 @@ fn login_window(
                                 redraw = true;
                             }
                             orbclient::K_ENTER => {
-                                if item == 0 {
+                                if mode == LoginMode::Login && item == 0 {
                                     item = 1;
-                                } else if item == 1 {
-                                    if let Some(command) = login_command(
-                                        &username,
-                                        &password,
-                                        launcher_cmd,
-                                        launcher_args,
-                                    ) {
-                                        return Ok(Some(command));
-                                    } else {
-                                        item = 0;
-                                        password.clear();
-                                        failure = true
-                                    }
+                                } else if let Some(command) = submit(
+                                    &mut username,
+                                    &mut password,
+                                    &mut mode,
+                                    &mut new_pw,
+                                    &mut change_user,
+                                    &mut item,
+                                    &mut failure,
+                                    launcher_cmd,
+                                    launcher_args,
+                                ) {
+                                    return Ok(Some(command));
                                 }
 
+                                // Re-render the panel + labels (they live in the
+                                // resize block) so the first-boot prompts update.
+                                resize = Some((window.width(), window.height()));
                                 redraw = true;
                             }
                             orbclient::K_ESC => {
@@ -663,19 +818,18 @@ fn login_window(
                                     item = 0;
                                 } else if mouse_y < y + 128 * s_i {
                                     item = 1;
-                                } else {
-                                    if let Some(command) = login_command(
-                                        &username,
-                                        &password,
-                                        launcher_cmd,
-                                        launcher_args,
-                                    ) {
-                                        return Ok(Some(command));
-                                    } else {
-                                        item = 0;
-                                        password.clear();
-                                        failure = true
-                                    }
+                                } else if let Some(command) = submit(
+                                    &mut username,
+                                    &mut password,
+                                    &mut mode,
+                                    &mut new_pw,
+                                    &mut change_user,
+                                    &mut item,
+                                    &mut failure,
+                                    launcher_cmd,
+                                    launcher_args,
+                                ) {
+                                    return Ok(Some(command));
                                 }
                                 trigger_redraw();
                                 continue;
