@@ -6,6 +6,8 @@ stages:
 
 workflow:
   rules:
+    # E-OS fork: also run pipelines in the e-os namespace (dev branches vary: eos*, master)
+    - if: '$CI_PROJECT_NAMESPACE == "e-os"'
     - if: '$CI_COMMIT_BRANCH == "master" && $CI_PROJECT_NAMESPACE == "redox-os"'
     - if: '$CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "master"'
 
