@@ -36,6 +36,13 @@ pub use ui::*;
 /// by the package rows. `search` carries the live query so the box shows what's
 /// been typed; row `selected` is highlighted (its index is into `packages`, not
 /// counting the search-box header).
+/// The y at which the chooser's content begins inside a fixed-height window:
+/// content is anchored to the BOTTOM (just above the bar), so a window sized for
+/// the worst case never clips results and never shows a tall empty panel.
+fn chooser_content_top(window_h: i32, rows: usize) -> i32 {
+    (window_h - rows as i32 * icon_small_size()).max(0)
+}
+
 fn draw_chooser(
     window: &mut Window,
     font: &Font,
@@ -44,35 +51,43 @@ fn draw_chooser(
     search: Option<&str>,
 ) {
     let w = window.width();
+    let isz = icon_small_size();
 
-    window.set(BAR_COLOR);
+    // Transparent everywhere; paint only the content rows (each gets its own
+    // background rect) so the visible panel is exactly the content, regardless of
+    // the fixed window height.
+    window.set(Color::rgba(0, 0, 0, 0));
 
-    let mut y = 0;
+    let rows = if search.is_some() { 1 } else { 0 } + packages.len();
+    let mut y = chooser_content_top(window.height() as i32, rows);
 
     // Search box header (top-level Start menu): filter the list as you type.
     if let Some(query) = search {
-        window.rect(0, y, w, icon_small_size() as u32, BAR_HIGHLIGHT_COLOR);
+        window.rect(0, y, w, isz as u32, BAR_HIGHLIGHT_COLOR);
         let label = if query.is_empty() {
             "Szukaj aplikacji…".to_string()
         } else {
             format!("Szukaj: {query}_  ({} wyników)", packages.len())
         };
         font.render(&label, font_size() as f32)
-            .draw(window, icon_small_size() + 8, y + 8, TEXT_HIGHLIGHT_COLOR);
-        y += icon_small_size();
+            .draw(window, isz + 8, y + 8, TEXT_HIGHLIGHT_COLOR);
+        y += isz;
     }
 
     for (i, package) in packages.iter_mut().enumerate() {
-        if i as i32 == selected {
-            window.rect(0, y, w, icon_small_size() as u32, BAR_HIGHLIGHT_COLOR);
-        }
+        let bg = if i as i32 == selected {
+            BAR_HIGHLIGHT_COLOR
+        } else {
+            BAR_COLOR
+        };
+        window.rect(0, y, w, isz as u32, bg);
 
         let image = package.icon_small.image();
         window.image(0, y, image.width(), image.height(), image.data());
 
         font.render(&package.name, font_size() as f32).draw(
             window,
-            icon_small_size() + 8,
+            isz + 8,
             y + 8,
             if i as i32 == selected {
                 TEXT_HIGHLIGHT_COLOR
@@ -81,7 +96,7 @@ fn draw_chooser(
             },
         );
 
-        y += icon_small_size();
+        y += isz;
     }
 
     window.sync();
@@ -420,19 +435,25 @@ impl Bar {
             }
         };
 
-        let header_h = if searchable { icon_small_size() } else { 0 };
-        let win_h = |rows: usize| -> i32 {
-            (header_h + rows as i32 * icon_small_size()).max(icon_small_size())
+        // One fixed-height window sized for the worst case (search box + every app,
+        // or the category list). Resizing a transparent window on every keystroke
+        // left results clipped, so instead the window stays put and draw_chooser
+        // paints the current rows bottom-anchored inside it.
+        let header_rows: usize = if searchable { 1 } else { 0 };
+        let body_rows = if searchable {
+            all_apps.len().max(level.len())
+        } else {
+            level.len()
         };
+        let win_h = ((header_rows + body_rows).max(1) as i32) * icon_small_size();
 
         let mut query = String::new();
         let mut view = build_view(&query);
-        let mut h = win_h(view.len());
         let mut start_window = Window::new_flags(
             0,
-            self.height as i32 - icon_size() - h,
+            self.height as i32 - icon_size() - win_h,
             chooser_width(),
-            h as u32,
+            win_h as u32,
             "Start",
             &[WindowFlag::Borderless, WindowFlag::Transparent],
         )
@@ -501,14 +522,11 @@ impl Bar {
                     _ => false,
                 };
 
-                // Query changed: rebuild the visible list and resize the popup so
-                // it grows/shrinks with the number of results.
+                // Query changed: rebuild the visible list and repaint (the window is
+                // fixed-size; draw_chooser bottom-anchors the current rows).
                 if relayout {
                     view = build_view(&query);
                     selected = -1;
-                    h = win_h(view.len());
-                    start_window.set_pos(0, self.height as i32 - icon_size() - h);
-                    start_window.set_size(chooser_width(), h as u32);
                     draw_chooser(
                         &mut start_window,
                         &self.font,
@@ -520,9 +538,13 @@ impl Bar {
                 }
 
                 if redraw {
-                    // Rows start below the search-box header.
+                    // Content is bottom-anchored inside the fixed window; find where
+                    // the (non-header) rows begin.
+                    let rows = header_rows + view.len();
+                    let first_row_y =
+                        chooser_content_top(win_h, rows) + header_rows as i32 * icon_small_size();
                     let mut now_selected = -1;
-                    let mut y = header_h;
+                    let mut y = first_row_y;
                     for j in 0..view.len() {
                         if mouse_y >= y && mouse_y < y + icon_small_size() {
                             now_selected = j as i32;
@@ -542,7 +564,7 @@ impl Bar {
                     }
 
                     if mouse_left && !last_mouse_left {
-                        let mut y = header_h;
+                        let mut y = first_row_y;
                         for package_i in 0..view.len() {
                             if mouse_y >= y && mouse_y < y + icon_small_size() {
                                 return Some(view[package_i].exec.to_string());
