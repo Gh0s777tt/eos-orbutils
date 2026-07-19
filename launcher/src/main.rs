@@ -20,7 +20,7 @@ use std::sync::atomic::Ordering;
 use std::{env, io, mem};
 
 use orbclient::image::Image;
-use orbclient::{Color, EventOption, Renderer, Window, WindowFlag, K_ESC};
+use orbclient::{Color, EventOption, Renderer, Window, WindowFlag, K_BKSP, K_ENTER, K_ESC};
 use orbfont::Font;
 
 use package::{IconSource, Package};
@@ -32,12 +32,36 @@ mod ui;
 
 pub use ui::*;
 
-fn draw_chooser(window: &mut Window, font: &Font, packages: &mut Vec<Package>, selected: i32) {
+/// Draw the Start chooser: an optional search box (top-level menu only) followed
+/// by the package rows. `search` carries the live query so the box shows what's
+/// been typed; row `selected` is highlighted (its index is into `packages`, not
+/// counting the search-box header).
+fn draw_chooser(
+    window: &mut Window,
+    font: &Font,
+    packages: &mut Vec<Package>,
+    selected: i32,
+    search: Option<&str>,
+) {
     let w = window.width();
 
     window.set(BAR_COLOR);
 
     let mut y = 0;
+
+    // Search box header (top-level Start menu): filter the list as you type.
+    if let Some(query) = search {
+        window.rect(0, y, w, icon_small_size() as u32, BAR_HIGHLIGHT_COLOR);
+        let label = if query.is_empty() {
+            "Szukaj aplikacji…".to_string()
+        } else {
+            format!("Szukaj: {query}_")
+        };
+        font.render(&label, font_size() as f32)
+            .draw(window, icon_small_size() + 8, y + 8, TEXT_HIGHLIGHT_COLOR);
+        y += icon_small_size();
+    }
+
     for (i, package) in packages.iter_mut().enumerate() {
         if i as i32 == selected {
             window.rect(0, y, w, icon_small_size() as u32, BAR_HIGHLIGHT_COLOR);
@@ -129,6 +153,8 @@ struct Bar {
     tray: Vec<Option<Image>>,
     start_packages: Vec<Package>,
     category_packages: BTreeMap<String, Vec<Package>>,
+    /// Every launchable app, flat — the pool the Start-menu search filters over.
+    all_apps: Vec<Package>,
     font: Font,
     width: u32,
     height: u32,
@@ -144,6 +170,8 @@ impl Bar {
         let margin = (icon_size() / 2).max(10);
         let bar_width = width.saturating_sub((margin * 2) as u32);
         let all_packages = get_packages();
+        // A flat copy of every app before the category split, for search.
+        let all_apps = all_packages.clone();
 
         // Handle packages with categories
         let mut root_packages = Vec::new();
@@ -216,6 +244,7 @@ impl Bar {
             ],
             start_packages,
             category_packages,
+            all_apps,
             font: Font::find(Some("Sans"), None, None).unwrap(),
             width: bar_width,
             height,
@@ -362,17 +391,48 @@ impl Bar {
     }
 
     fn start_window(&mut self, category_opt: Option<&String>) -> Option<String> {
-        let packages = match category_opt {
-            Some(category) => self.category_packages.get_mut(category)?,
-            None => &mut self.start_packages,
+        // Search only makes sense on the top-level Start menu; a category submenu
+        // keeps its plain list. Work off owned clones so switching between the
+        // category view and flat search results needs no borrow juggling.
+        let searchable = category_opt.is_none();
+        let level: Vec<Package> = match category_opt {
+            Some(category) => self.category_packages.get(category)?.clone(),
+            None => self.start_packages.clone(),
+        };
+        let all_apps: Vec<Package> = if searchable {
+            self.all_apps.clone()
+        } else {
+            Vec::new()
         };
 
-        let start_h = packages.len() as u32 * icon_small_size() as u32;
+        // Empty query → the category/level list; non-empty → every app whose name
+        // contains the query (case-insensitive).
+        let build_view = |query: &str| -> Vec<Package> {
+            if !searchable || query.is_empty() {
+                level.clone()
+            } else {
+                let q = query.to_lowercase();
+                all_apps
+                    .iter()
+                    .filter(|p| p.name.to_lowercase().contains(&q))
+                    .cloned()
+                    .collect()
+            }
+        };
+
+        let header_h = if searchable { icon_small_size() } else { 0 };
+        let win_h = |rows: usize| -> i32 {
+            (header_h + rows as i32 * icon_small_size()).max(icon_small_size())
+        };
+
+        let mut query = String::new();
+        let mut view = build_view(&query);
+        let mut h = win_h(view.len());
         let mut start_window = Window::new_flags(
             0,
-            self.height as i32 - icon_size() - start_h as i32,
+            self.height as i32 - icon_size() - h,
             chooser_width(),
-            start_h,
+            h as u32,
             "Start",
             &[WindowFlag::Borderless, WindowFlag::Transparent],
         )
@@ -382,9 +442,16 @@ impl Bar {
         let mut mouse_y = 0;
         let mut mouse_left = false;
         let mut last_mouse_left = false;
-        draw_chooser(&mut start_window, &self.font, packages, selected);
+        draw_chooser(
+            &mut start_window,
+            &self.font,
+            &mut view,
+            selected,
+            if searchable { Some(query.as_str()) } else { None },
+        );
         'start_choosing: loop {
             for event in start_window.events() {
+                let mut relayout = false;
                 let redraw = match event.to_option() {
                     EventOption::Mouse(mouse_event) => {
                         mouse_y = mouse_event.y;
@@ -394,10 +461,33 @@ impl Bar {
                         mouse_left = button_event.left;
                         true
                     }
-                    EventOption::Key(key_event) => match key_event.scancode {
-                        K_ESC => break 'start_choosing,
-                        _ => false,
-                    },
+                    EventOption::Key(key_event) if key_event.pressed => {
+                        if key_event.scancode == K_ESC {
+                            break 'start_choosing;
+                        } else if searchable {
+                            match key_event.scancode {
+                                K_BKSP => {
+                                    query.pop();
+                                    relayout = true;
+                                }
+                                K_ENTER => {
+                                    // Launch the highlighted result, else the first.
+                                    let idx = if selected >= 0 { selected as usize } else { 0 };
+                                    if let Some(p) = view.get(idx) {
+                                        return Some(p.exec.to_string());
+                                    }
+                                }
+                                _ => {
+                                    let c = key_event.character;
+                                    if !c.is_control() && c != '\0' {
+                                        query.push(c);
+                                        relayout = true;
+                                    }
+                                }
+                            }
+                        }
+                        relayout
+                    }
                     EventOption::Focus(focus_event) => {
                         if !focus_event.focused {
                             break 'start_choosing;
@@ -409,11 +499,29 @@ impl Bar {
                     _ => false,
                 };
 
-                if redraw {
-                    let mut now_selected = -1;
+                // Query changed: rebuild the visible list and resize the popup so
+                // it grows/shrinks with the number of results.
+                if relayout {
+                    view = build_view(&query);
+                    selected = -1;
+                    h = win_h(view.len());
+                    start_window.set_pos(0, self.height as i32 - icon_size() - h);
+                    start_window.set_size(chooser_width(), h as u32);
+                    draw_chooser(
+                        &mut start_window,
+                        &self.font,
+                        &mut view,
+                        selected,
+                        if searchable { Some(query.as_str()) } else { None },
+                    );
+                    continue;
+                }
 
-                    let mut y = 0;
-                    for (j, _package) in packages.iter().enumerate() {
+                if redraw {
+                    // Rows start below the search-box header.
+                    let mut now_selected = -1;
+                    let mut y = header_h;
+                    for j in 0..view.len() {
                         if mouse_y >= y && mouse_y < y + icon_small_size() {
                             now_selected = j as i32;
                         }
@@ -422,14 +530,20 @@ impl Bar {
 
                     if now_selected != selected {
                         selected = now_selected;
-                        draw_chooser(&mut start_window, &self.font, packages, selected);
+                        draw_chooser(
+                            &mut start_window,
+                            &self.font,
+                            &mut view,
+                            selected,
+                            if searchable { Some(query.as_str()) } else { None },
+                        );
                     }
 
                     if mouse_left && !last_mouse_left {
-                        let mut y = 0;
-                        for package_i in 0..packages.len() {
+                        let mut y = header_h;
+                        for package_i in 0..view.len() {
                             if mouse_y >= y && mouse_y < y + icon_small_size() {
-                                return Some(packages[package_i].exec.to_string());
+                                return Some(view[package_i].exec.to_string());
                             }
                             y += icon_small_size();
                         }
@@ -790,7 +904,7 @@ fn chooser_main(paths: env::Args) {
             let mut mouse_left = false;
             let mut last_mouse_left = false;
 
-            draw_chooser(&mut window, &font, &mut packages, selected);
+            draw_chooser(&mut window, &font, &mut packages, selected, None);
             'choosing: loop {
                 for event in window.events() {
                     let redraw = match event.to_option() {
@@ -819,7 +933,7 @@ fn chooser_main(paths: env::Args) {
 
                         if now_selected != selected {
                             selected = now_selected;
-                            draw_chooser(&mut window, &font, &mut packages, selected);
+                            draw_chooser(&mut window, &font, &mut packages, selected, None);
                         }
 
                         if !mouse_left && last_mouse_left {
