@@ -163,6 +163,8 @@ struct Bar {
     selected: i32,
     selected_window: Window,
     time: String,
+    /// The tray's clickable x-span `(left, right)`, recomputed each draw.
+    tray_region: (i32, i32),
 }
 
 impl Bar {
@@ -277,6 +279,7 @@ impl Bar {
             )
             .expect("launcher: failed to open selected window"),
             time: String::new(),
+            tray_region: (0, 0),
         }
     }
 
@@ -387,6 +390,9 @@ impl Bar {
                 .image(tx, ty, icon.width(), icon.height(), icon.data());
             tx -= 8;
         }
+        // Remember the tray's x-span so a click there can open Settings (the tray's
+        // exact position depends on the clock text width, computed above).
+        self.tray_region = (tx, x - 14);
 
         self.window.sync();
     }
@@ -845,6 +851,12 @@ fn bar_main(width: u32, height: u32) -> io::Result<()> {
                                     bar.spawn(exec);
                                 }
                                 i += 1;
+                            }
+
+                            // Clicking the status tray (net / volume / settings, far
+                            // right) opens Settings — the tray was dead pixels before.
+                            if mouse_x >= bar.tray_region.0 && mouse_x < bar.tray_region.1 {
+                                bar.spawn("eos-settings".to_string());
                             }
                         }
 
