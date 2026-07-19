@@ -462,29 +462,31 @@ impl Bar {
                         true
                     }
                     EventOption::Key(key_event) if key_event.pressed => {
-                        if key_event.scancode == K_ESC {
-                            break 'start_choosing;
-                        } else if searchable {
-                            match key_event.scancode {
-                                K_BKSP => {
-                                    query.pop();
-                                    relayout = true;
-                                }
-                                K_ENTER => {
-                                    // Launch the highlighted result, else the first.
-                                    let idx = if selected >= 0 { selected as usize } else { 0 };
-                                    if let Some(p) = view.get(idx) {
-                                        return Some(p.exec.to_string());
-                                    }
-                                }
-                                _ => {
-                                    let c = key_event.character;
-                                    if !c.is_control() && c != '\0' {
-                                        query.push(c);
-                                        relayout = true;
-                                    }
+                        match key_event.scancode {
+                            K_ESC => break 'start_choosing,
+                            K_BKSP if searchable => {
+                                query.pop();
+                                relayout = true;
+                            }
+                            K_ENTER if searchable => {
+                                // Launch the highlighted result, else the first.
+                                let idx = if selected >= 0 { selected as usize } else { 0 };
+                                if let Some(p) = view.get(idx) {
+                                    return Some(p.exec.to_string());
                                 }
                             }
+                            _ => {}
+                        }
+                        relayout
+                    }
+                    // Orbital delivers printable characters as a separate TextInput
+                    // event (a Key event carries only the scancode), so the search
+                    // query is fed from here, not from key_event.character.
+                    EventOption::TextInput(text_input) if searchable => {
+                        let c = text_input.character;
+                        if !c.is_control() && c != '\0' {
+                            query.push(c);
+                            relayout = true;
                         }
                         relayout
                     }
