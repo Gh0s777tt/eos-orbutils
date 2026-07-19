@@ -36,11 +36,9 @@ pub use ui::*;
 /// by the package rows. `search` carries the live query so the box shows what's
 /// been typed; row `selected` is highlighted (its index is into `packages`, not
 /// counting the search-box header).
-/// The y at which the chooser's content begins inside a fixed-height window:
-/// content is anchored to the BOTTOM (just above the bar), so a window sized for
-/// the worst case never clips results and never shows a tall empty panel.
-fn chooser_content_top(window_h: i32, rows: usize) -> i32 {
-    (window_h - rows as i32 * icon_small_size()).max(0)
+/// The chooser row height, including the search-box header when present.
+fn chooser_rows(packages_len: usize, search: bool) -> usize {
+    (if search { 1 } else { 0 }) + packages_len
 }
 
 fn draw_chooser(
@@ -53,13 +51,9 @@ fn draw_chooser(
     let w = window.width();
     let isz = icon_small_size();
 
-    // Transparent everywhere; paint only the content rows (each gets its own
-    // background rect) so the visible panel is exactly the content, regardless of
-    // the fixed window height.
-    window.set(Color::rgba(0, 0, 0, 0));
+    window.set(BAR_COLOR);
 
-    let rows = if search.is_some() { 1 } else { 0 } + packages.len();
-    let mut y = chooser_content_top(window.height() as i32, rows);
+    let mut y = 0;
 
     // Search box header (top-level Start menu): filter the list as you type.
     if let Some(query) = search {
@@ -75,12 +69,9 @@ fn draw_chooser(
     }
 
     for (i, package) in packages.iter_mut().enumerate() {
-        let bg = if i as i32 == selected {
-            BAR_HIGHLIGHT_COLOR
-        } else {
-            BAR_COLOR
-        };
-        window.rect(0, y, w, isz as u32, bg);
+        if i as i32 == selected {
+            window.rect(0, y, w, isz as u32, BAR_HIGHLIGHT_COLOR);
+        }
 
         let image = package.icon_small.image();
         window.image(0, y, image.width(), image.height(), image.data());
@@ -435,25 +426,23 @@ impl Bar {
             }
         };
 
-        // One fixed-height window sized for the worst case (search box + every app,
-        // or the category list). Resizing a transparent window on every keystroke
-        // left results clipped, so instead the window stays put and draw_chooser
-        // paints the current rows bottom-anchored inside it.
-        let header_rows: usize = if searchable { 1 } else { 0 };
-        let body_rows = if searchable {
-            all_apps.len().max(level.len())
-        } else {
-            level.len()
+        // The window is sized to exactly the current view (search box + rows) and
+        // RECREATED whenever the query changes — resizing a live transparent window
+        // mid-type left later results clipped, so a fresh, correctly-sized window is
+        // drawn instead. `header_h` is the search-box row's height for hit-testing.
+        let header_h = if searchable { icon_small_size() } else { 0 };
+        let win_h = |n: usize| -> i32 {
+            (chooser_rows(n, searchable).max(1) as i32) * icon_small_size()
         };
-        let win_h = ((header_rows + body_rows).max(1) as i32) * icon_small_size();
 
         let mut query = String::new();
         let mut view = build_view(&query);
+        let mut h = win_h(view.len());
         let mut start_window = Window::new_flags(
             0,
-            self.height as i32 - icon_size() - win_h,
+            self.height as i32 - icon_size() - h,
             chooser_width(),
-            win_h as u32,
+            h as u32,
             "Start",
             &[WindowFlag::Borderless, WindowFlag::Transparent],
         )
@@ -471,8 +460,11 @@ impl Bar {
             if searchable { Some(query.as_str()) } else { None },
         );
         'start_choosing: loop {
-            for event in start_window.events() {
-                let mut relayout = false;
+            let mut relayout = false;
+            // Drain this batch into a Vec so `start_window` isn't borrowed while it
+            // may need to be recreated below after the query changes.
+            let events: Vec<_> = start_window.events().collect();
+            for event in events {
                 let redraw = match event.to_option() {
                     EventOption::Mouse(mouse_event) => {
                         mouse_y = mouse_event.y;
@@ -498,7 +490,7 @@ impl Bar {
                             }
                             _ => {}
                         }
-                        relayout
+                        false
                     }
                     // Orbital delivers printable characters as a separate TextInput
                     // event (a Key event carries only the scancode), so the search
@@ -509,7 +501,7 @@ impl Bar {
                             query.push(c);
                             relayout = true;
                         }
-                        relayout
+                        false
                     }
                     EventOption::Focus(focus_event) => {
                         if !focus_event.focused {
@@ -522,29 +514,10 @@ impl Bar {
                     _ => false,
                 };
 
-                // Query changed: rebuild the visible list and repaint (the window is
-                // fixed-size; draw_chooser bottom-anchors the current rows).
-                if relayout {
-                    view = build_view(&query);
-                    selected = -1;
-                    draw_chooser(
-                        &mut start_window,
-                        &self.font,
-                        &mut view,
-                        selected,
-                        if searchable { Some(query.as_str()) } else { None },
-                    );
-                    continue;
-                }
-
-                if redraw {
-                    // Content is bottom-anchored inside the fixed window; find where
-                    // the (non-header) rows begin.
-                    let rows = header_rows + view.len();
-                    let first_row_y =
-                        chooser_content_top(win_h, rows) + header_rows as i32 * icon_small_size();
+                if redraw && !relayout {
+                    // Rows begin below the (top-anchored) search-box header.
                     let mut now_selected = -1;
-                    let mut y = first_row_y;
+                    let mut y = header_h;
                     for j in 0..view.len() {
                         if mouse_y >= y && mouse_y < y + icon_small_size() {
                             now_selected = j as i32;
@@ -564,7 +537,7 @@ impl Bar {
                     }
 
                     if mouse_left && !last_mouse_left {
-                        let mut y = first_row_y;
+                        let mut y = header_h;
                         for package_i in 0..view.len() {
                             if mouse_y >= y && mouse_y < y + icon_small_size() {
                                 return Some(view[package_i].exec.to_string());
@@ -575,6 +548,30 @@ impl Bar {
 
                     last_mouse_left = mouse_left;
                 }
+            }
+
+            // Query changed: rebuild the view and recreate the window at the new
+            // size (the events borrow is released now).
+            if relayout {
+                view = build_view(&query);
+                selected = -1;
+                h = win_h(view.len());
+                start_window = Window::new_flags(
+                    0,
+                    self.height as i32 - icon_size() - h,
+                    chooser_width(),
+                    h as u32,
+                    "Start",
+                    &[WindowFlag::Borderless, WindowFlag::Transparent],
+                )
+                .unwrap();
+                draw_chooser(
+                    &mut start_window,
+                    &self.font,
+                    &mut view,
+                    selected,
+                    if searchable { Some(query.as_str()) } else { None },
+                );
             }
         }
         None
