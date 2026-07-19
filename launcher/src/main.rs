@@ -55,7 +55,7 @@ fn draw_chooser(
         let label = if query.is_empty() {
             "Szukaj aplikacji…".to_string()
         } else {
-            format!("Szukaj: {query}_")
+            format!("Szukaj: {query}_  ({} wyników)", packages.len())
         };
         font.render(&label, font_size() as f32)
             .draw(window, icon_small_size() + 8, y + 8, TEXT_HIGHLIGHT_COLOR);
