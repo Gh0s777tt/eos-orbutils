@@ -63,6 +63,65 @@ fn draw_chooser(window: &mut Window, font: &Font, packages: &mut Vec<Package>, s
     window.sync();
 }
 
+/// The local timezone offset from UTC, in seconds east of UTC (positive = ahead).
+/// Read from `/etc/tz-offset` (a plain integer — E-OS's simple, tz-database-free
+/// form; a distinct path so it never clashes with Debian's zone-*name* file),
+/// falling back to a numeric `TZ` env (`+02:00`, `-0500`, `+2`, `UTC+2`); 0 (UTC)
+/// if unset. A fixed offset has no DST — a named-zone/DST clock waits on a real
+/// tz database (tracked with per-machine identity at install).
+fn tz_offset_secs() -> i64 {
+    if let Ok(s) = std::fs::read_to_string("/etc/tz-offset") {
+        if let Ok(v) = s.trim().parse::<i64>() {
+            return v;
+        }
+    }
+    if let Ok(tz) = std::env::var("TZ") {
+        if let Some(v) = parse_tz_offset(tz.trim()) {
+            return v;
+        }
+    }
+    0
+}
+
+/// Parse a numeric UTC offset like `+02:00`, `-0500`, `+2` or `UTC+2` into seconds.
+fn parse_tz_offset(s: &str) -> Option<i64> {
+    let s = s.trim_start_matches("UTC").trim_start_matches("GMT");
+    let (sign, rest) = match s.strip_prefix('-') {
+        Some(r) => (-1_i64, r),
+        None => (1, s.strip_prefix('+').unwrap_or(s)),
+    };
+    if rest.is_empty() {
+        return None;
+    }
+    let (hh, mm) = match rest.split_once(':') {
+        Some((h, m)) => (h, m),
+        None if rest.len() >= 3 => rest.split_at(rest.len() - 2),
+        None => (rest, "0"),
+    };
+    let h: i64 = hh.parse().ok()?;
+    let m: i64 = mm.parse().ok()?;
+    Some(sign * (h * 3600 + m * 60))
+}
+
+/// Break an absolute time (seconds since the Unix epoch) into a civil
+/// `(year, month, day, hour, minute)`. Pure integer math — Howard Hinnant's
+/// days-from-civil inverse — so the launcher needs no calendar crate.
+fn civil_from_epoch(secs: i64) -> (i64, u32, u32, u32, u32) {
+    let rem = secs.rem_euclid(86_400);
+    let hour = (rem / 3600) as u32;
+    let min = ((rem % 3600) / 60) as u32;
+    let z = secs.div_euclid(86_400) + 719_468;
+    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
+    let doe = z - era * 146_097; // day-of-era [0, 146096]
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365; // [0, 399]
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100); // day-of-year [0, 365]
+    let mp = (5 * doy + 2) / 153; // month-of-year, Mar=0 [0, 11]
+    let d = (doy - (153 * mp + 2) / 5 + 1) as u32; // [1, 31]
+    let m = (if mp < 10 { mp + 3 } else { mp - 9 }) as u32; // [1, 12]
+    let y = yoe + era * 400 + if m <= 2 { 1 } else { 0 };
+    (y, m, d, hour, min)
+}
+
 struct Bar {
     children: Vec<(String, Child)>,
     packages: Vec<Package>,
@@ -195,11 +254,19 @@ impl Bar {
         let time = libredox::call::clock_gettime(flag::CLOCK_REALTIME)
             .expect("launcher: failed to read time");
 
-        let ts = time.tv_sec;
-        let s = ts % 86400;
-        let h = s / 3600;
-        let m = s / 60 % 60;
-        self.time = format!("{:>02}:{:>02}", h, m)
+        // Shift UTC by the configured offset so the bar reads LOCAL time, then
+        // break the epoch into a civil date (no chrono). Fixes the old bug where
+        // the clock showed raw UTC (`ts % 86400`) with no date and no zone.
+        let off = tz_offset_secs();
+        let (y, mo, d, h, mi) = civil_from_epoch(time.tv_sec + off);
+        let sign = if off < 0 { '-' } else { '+' };
+        let (oh, om) = (off.abs() / 3600, (off.abs() % 3600) / 60);
+        let zone = if om == 0 {
+            format!("UTC{sign}{oh}")
+        } else {
+            format!("UTC{sign}{oh}:{om:02}")
+        };
+        self.time = format!("{y:04}-{mo:02}-{d:02}  {h:02}:{mi:02}  {zone}");
     }
 
     fn draw(&mut self) {
@@ -274,8 +341,9 @@ impl Bar {
                 .image(sx, y, start.width(), start.height(), start.data());
         }
 
-        // Clock (far right).
-        let text = self.font.render(&self.time, (font_size() * 2) as f32);
+        // Clock (far right): local date + time + zone, at 1× (the string is wider
+        // than the old bare "HH:MM", so 2× would crowd the tray).
+        let text = self.font.render(&self.time, font_size() as f32);
         x = self.width as i32 - text.width() as i32 - 12;
         y = (icon_size() - text.height() as i32) / 2;
         text.draw(&mut self.window, x, y, TEXT_HIGHLIGHT_COLOR);
