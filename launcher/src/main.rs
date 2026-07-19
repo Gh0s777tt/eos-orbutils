@@ -624,6 +624,12 @@ fn bar_main(width: u32, height: u32) -> io::Result<()> {
         Err(err) => error!("failed to launch background: {}", err),
     }
 
+    // The notification daemon (shows toasts from `eos-notify`).
+    match Command::new("eos-notifyd").spawn() {
+        Ok(child) => bar.children.push(("eos-notifyd".to_string(), child)),
+        Err(err) => error!("failed to launch eos-notifyd: {}", err),
+    }
+
     user_data! {
         enum Event {
             Time,

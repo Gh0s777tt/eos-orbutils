@@ -15,6 +15,14 @@ path = "src/desktop.rs"
 name = "eos-settings"
 path = "src/settings.rs"
 
+[[bin]]
+name = "eos-notifyd"
+path = "src/notifyd.rs"
+
+[[bin]]
+name = "eos-notify"
+path = "src/notify.rs"
+
 [dependencies]
 freedesktop_entry_parser = "1"
 freedesktop-icons = "0.2"
