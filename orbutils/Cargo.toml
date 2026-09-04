@@ -37,6 +37,17 @@ orbclient = { workspace = true }
 orbfont = { workspace = true }
 # orbtk = "0.2.29"
 redox_users = "0.4"
+
+# The credential policy, shared with `passwd` rather than reimplemented here. Owner decision Q3 was
+# "one library, five callers", and the alternative is what this dependency exists to prevent: on
+# 2026-09-03 `passwd` gained the policy and this greeter did not, so the SAME person setting their
+# FIRST password got a length floor at the text console and none at the graphical one.
+#
+# It is `eos-credpolicy` and not `userutils` for a measured reason. Depending on the whole
+# `userutils` package fails to resolve: it drags `redox-rt` (relibc), which wants
+# `redox_syscall ^0.9.2`, while this crate is locked to 0.9.0. `eos-credpolicy` has NO dependencies
+# at all, so it adds nothing to this graph -- which is why it was extracted.
+eos-credpolicy = { git = "https://gitlab.com/e-os/eos-userutils.git", rev = "fcc3661461a36d8e40c54f940dba2568d7c44f61" }
 redox-log = "0.1"
 log = "0.4.14"
 dirs = "5.0.0"

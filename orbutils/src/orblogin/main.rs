@@ -162,8 +162,24 @@ fn authenticate(username: &str, pass: &str) -> Auth {
 // and persist it — the same authenticator/set_passwd/save path the `passwd` tool
 // uses. Refuses to leave the account on the shipped default "password".
 fn set_password(username: &str, new_pass: &str) -> Result<(), String> {
-    if new_pass.is_empty() || new_pass == "password" {
-        return Err("weak password".to_string());
+    // THE SAME POLICY `passwd` ENFORCES, from the same package, so the two cannot drift.
+    //
+    // Until 2026-09-04 the whole rule here was `is_empty() || == "password"`, while `passwd` had a
+    // length floor, a blocklist and an entropy estimate. The same person setting their FIRST
+    // password therefore got a real check at the text console and almost none at the graphical
+    // one -- and the graphical one is the path most people take. A policy that depends on which
+    // door you walk through is not a policy.
+    //
+    // `render_verdict` produces the wording as well as the decision, so the greeter and `passwd`
+    // say the same thing about the same password rather than each inventing an explanation.
+    let verdict = eos_credpolicy::PasswordPolicy::from_env()
+        .verdict(&eos_credpolicy::assess_password(new_pass));
+    let (lines, accepted) =
+        eos_credpolicy::render_verdict(&verdict, eos_credpolicy::guidance::Lang::Pl);
+    if !accepted {
+        // The first line is the reason; the rest is guidance. The greeter has one line to say it
+        // in, so it says the reason and keeps the guidance for `passwd`, which has a terminal.
+        return Err(lines.first().cloned().unwrap_or_else(|| "weak password".to_string()));
     }
     // `writeable(true)` is required for `save()` — plain `Config::default()`
     // opens the users DB read-only (EBADF on save). Same as `passwd`.
@@ -222,7 +238,14 @@ fn submit(
             None
         }
         LoginMode::SetNew => {
-            if password.is_empty() || *password == "password" {
+            // Judge BEFORE asking for the confirmation. `passwd` asks twice and judges afterwards,
+            // which is what made its refusal invisible to the install harness for a whole run; a
+            // greeter that made someone type a doomed password twice would be worse still.
+            let verdict = eos_credpolicy::PasswordPolicy::from_env()
+                .verdict(&eos_credpolicy::assess_password(password));
+            let (_, accepted) =
+                eos_credpolicy::render_verdict(&verdict, eos_credpolicy::guidance::Lang::Pl);
+            if !accepted {
                 *failure = true;
             } else {
                 *new_pw = password.clone();
